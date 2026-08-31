@@ -3,6 +3,7 @@
 
 const LVIV_CENTER = [49.8397, 24.0297];
 const LVIV_VIEWBOX = '23.85,49.92,24.15,49.75'; // lng1,lat1,lng2,lat2 для Nominatim
+const LVIV_VIEWBOX_PHOTON = '23.85,49.75,24.15,49.92'; // minLon,minLat,maxLon,maxLat для Photon
 
 const STYLE = {
   good:  { color: '#15803d', weight: 2, fillColor: '#22c55e', fillOpacity: 0.25 },
@@ -24,7 +25,7 @@ function esc(s) {
 function bindZone(layer) {
   const p = layer.feature.properties;
   const badge = p.status === 'good'
-    ? '<span class="badge good">🟢 Хочу тут жити</span>'
+    ? '<span class="badge good">🟢 Рекомендують тут жити</span>'
     : '<span class="badge avoid">🔴 Не рекомендують</span>';
   layer.bindPopup(
     `<div class="zone-popup"><b>${esc(p.name)}</b><br>${badge}<p>${esc(p.description)}</p></div>`
@@ -43,7 +44,7 @@ const legend = L.control({ position: 'bottomright' });
 legend.onAdd = () => {
   const div = L.DomUtil.create('div', 'legend');
   div.innerHTML =
-    '<div><span class="swatch" style="background:#22c55e"></span>Хочу тут жити</div>' +
+    '<div><span class="swatch" style="background:#22c55e"></span>Рекомендують тут жити</div>' +
     '<div><span class="swatch" style="background:#f87171"></span>Не рекомендують</div>';
   return div;
 };
@@ -84,6 +85,11 @@ const searchForm = document.getElementById('searchForm');
 const searchInput = document.getElementById('searchInput');
 let searchMarker = null;
 
+// «Шувар, 36, проспект Червоної Калини, Шувар, Козельники, …» → перші 3 частини
+function shortLabel(displayName) {
+  return String(displayName).split(',').slice(0, 3).join(',').trim();
+}
+
 function showResult(html, cls) {
   resultBar.className = cls || '';
   resultBar.innerHTML = html;
@@ -122,12 +128,102 @@ async function geocode(query) {
   return res.json();
 }
 
+/* ---------- Підказки під час введення (Photon, безкоштовний OSM-геокодер) ---------- */
+const suggestionsBox = document.getElementById('suggestions');
+let suggestItems = [];
+let suggestHl = -1;
+let suggestTimer = null;
+let suggestAbort = null;
+
+function photonLabel(f) {
+  const p = f.properties;
+  const main = p.name || [p.street, p.housenumber].filter(Boolean).join(' ') || '';
+  const extra = [p.street && p.name ? [p.street, p.housenumber].filter(Boolean).join(' ') : '', p.district, p.city]
+    .filter(Boolean).join(', ');
+  return { main, extra };
+}
+
+function hideSuggestions() {
+  suggestionsBox.style.display = 'none';
+  suggestionsBox.innerHTML = '';
+  suggestItems = [];
+  suggestHl = -1;
+}
+
+function renderSuggestions() {
+  if (!suggestItems.length) { hideSuggestions(); return; }
+  suggestionsBox.innerHTML = suggestItems.map((it, i) =>
+    `<button type="button" data-i="${i}" class="${i === suggestHl ? 'hl' : ''}">` +
+    `${esc(it.main)}${it.extra ? ` <span class="sub">${esc(it.extra)}</span>` : ''}</button>`
+  ).join('');
+  suggestionsBox.style.display = 'block';
+  suggestionsBox.querySelectorAll('button').forEach(btn => {
+    // pointerdown спрацьовує до blur інпута, інакше на телефоні список зникає раніше за тап
+    btn.addEventListener('pointerdown', (e) => {
+      e.preventDefault();
+      pickSuggestion(+btn.dataset.i);
+    });
+  });
+}
+
+function pickSuggestion(i) {
+  const it = suggestItems[i];
+  if (!it) return;
+  searchInput.value = it.main + (it.extra ? ', ' + it.extra : '');
+  hideSuggestions();
+  placeResult(it.lat, it.lng, it.main + (it.extra ? ', ' + it.extra : ''));
+}
+
+async function fetchSuggestions(query) {
+  if (suggestAbort) suggestAbort.abort();
+  suggestAbort = new AbortController();
+  const url = 'https://photon.komoot.io/api/' +
+    `?q=${encodeURIComponent(query)}&limit=5&lang=default&bbox=${LVIV_VIEWBOX_PHOTON}`;
+  try {
+    const res = await fetch(url, { signal: suggestAbort.signal });
+    if (!res.ok) return;
+    const data = await res.json();
+    suggestItems = (data.features || []).map(f => {
+      const { main, extra } = photonLabel(f);
+      return { main, extra, lng: f.geometry.coordinates[0], lat: f.geometry.coordinates[1] };
+    }).filter(it => it.main);
+    suggestHl = -1;
+    renderSuggestions();
+  } catch (e) {
+    if (e.name !== 'AbortError') hideSuggestions();
+  }
+}
+
+searchInput.addEventListener('input', () => {
+  clearTimeout(suggestTimer);
+  const q = searchInput.value.trim();
+  if (q.length < 3) { hideSuggestions(); return; }
+  suggestTimer = setTimeout(() => fetchSuggestions(q), 350);
+});
+
 searchInput.addEventListener('keydown', (e) => {
-  if (e.key === 'Enter') {
+  if (e.key === 'ArrowDown' && suggestItems.length) {
     e.preventDefault();
-    searchForm.requestSubmit();
+    suggestHl = (suggestHl + 1) % suggestItems.length;
+    renderSuggestions();
+  } else if (e.key === 'ArrowUp' && suggestItems.length) {
+    e.preventDefault();
+    suggestHl = (suggestHl - 1 + suggestItems.length) % suggestItems.length;
+    renderSuggestions();
+  } else if (e.key === 'Escape') {
+    hideSuggestions();
+  } else if (e.key === 'Enter') {
+    e.preventDefault();
+    if (suggestHl >= 0) {
+      pickSuggestion(suggestHl);
+    } else {
+      hideSuggestions();
+      searchForm.requestSubmit();
+    }
   }
 });
+
+searchInput.addEventListener('blur', () => setTimeout(hideSuggestions, 200));
 
 searchForm.addEventListener('submit', async (e) => {
   e.preventDefault();
@@ -139,20 +235,20 @@ searchForm.addEventListener('submit', async (e) => {
     if (!results.length) {
       showResult('Нічого не знайдено. Спробуйте, наприклад: «вул. Личаківська 45».');
     } else if (results.length === 1) {
-      placeResult(+results[0].lat, +results[0].lon, results[0].display_name);
+      placeResult(+results[0].lat, +results[0].lon, shortLabel(results[0].display_name));
     } else {
       showResult(
         'Знайдено кілька варіантів — оберіть:' +
         '<div class="picklist">' +
         results.map((r, i) =>
-          `<button type="button" data-i="${i}">${esc(r.display_name)}</button>`
+          `<button type="button" data-i="${i}">${esc(shortLabel(r.display_name))}</button>`
         ).join('') +
         '</div>'
       );
       resultBar.querySelectorAll('.picklist button').forEach(btn => {
         btn.addEventListener('click', () => {
           const r = results[+btn.dataset.i];
-          placeResult(+r.lat, +r.lon, r.display_name);
+          placeResult(+r.lat, +r.lon, shortLabel(r.display_name));
         });
       });
     }
