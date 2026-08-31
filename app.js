@@ -1,4 +1,4 @@
-/* Мапа районів Львова: зелені зони (хочу тут жити), червоні (не рекомендують),
+/* Мапа районів Львова: зелені зони (рекомендовано), червоні (не рекомендовано),
    пошук адреси через OSM Nominatim + перевірка, у якій зоні точка. */
 
 const LVIV_CENTER = [49.8397, 24.0297];
@@ -26,7 +26,7 @@ function bindZone(layer) {
   const p = layer.feature.properties;
   const badge = p.status === 'good'
     ? '<span class="badge good">🟢 Рекомендовано тут жити</span>'
-    : '<span class="badge avoid">🔴 Не рекомендують</span>';
+    : '<span class="badge avoid">🔴 Не рекомендовано</span>';
   layer.bindPopup(
     `<div class="zone-popup"><b>${esc(p.name)}</b><br>${badge}<p>${esc(p.description)}</p></div>`
   );
@@ -45,7 +45,7 @@ legend.onAdd = () => {
   const div = L.DomUtil.create('div', 'legend');
   div.innerHTML =
     '<div><span class="swatch" style="background:#22c55e"></span>Рекомендовано тут жити</div>' +
-    '<div><span class="swatch" style="background:#f87171"></span>Не рекомендують</div>';
+    '<div><span class="swatch" style="background:#f87171"></span>Не рекомендовано</div>';
   return div;
 };
 legend.addTo(map);
