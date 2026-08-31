@@ -25,7 +25,7 @@ function esc(s) {
 function bindZone(layer) {
   const p = layer.feature.properties;
   const badge = p.status === 'good'
-    ? '<span class="badge good">🟢 Рекомендують тут жити</span>'
+    ? '<span class="badge good">🟢 Рекомендовано тут жити</span>'
     : '<span class="badge avoid">🔴 Не рекомендують</span>';
   layer.bindPopup(
     `<div class="zone-popup"><b>${esc(p.name)}</b><br>${badge}<p>${esc(p.description)}</p></div>`
@@ -44,7 +44,7 @@ const legend = L.control({ position: 'bottomright' });
 legend.onAdd = () => {
   const div = L.DomUtil.create('div', 'legend');
   div.innerHTML =
-    '<div><span class="swatch" style="background:#22c55e"></span>Рекомендують тут жити</div>' +
+    '<div><span class="swatch" style="background:#22c55e"></span>Рекомендовано тут жити</div>' +
     '<div><span class="swatch" style="background:#f87171"></span>Не рекомендують</div>';
   return div;
 };
