@@ -65,6 +65,8 @@ function pointInRing(lng, lat, ring) {
 }
 
 function zoneAt(lat, lng) {
+  // Якщо точка одночасно в зеленій і червоній зоні — перемагає червона.
+  let firstGood = null;
   for (const layer of zonesLayer.getLayers()) {
     const g = layer.feature && layer.feature.geometry;
     if (!g) continue;
@@ -73,10 +75,13 @@ function zoneAt(lat, lng) {
     for (const rings of polys) {
       let inside = false;
       for (const ring of rings) if (pointInRing(lng, lat, ring)) inside = !inside;
-      if (inside) return layer;
+      if (inside) {
+        if (layer.feature.properties.status === 'avoid') return layer;
+        if (!firstGood) firstGood = layer;
+      }
     }
   }
-  return null;
+  return firstGood;
 }
 
 /* ---------- Пошук адреси (Nominatim) ---------- */
